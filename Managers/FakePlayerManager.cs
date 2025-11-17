@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using FakePlayers.Config;
 using FakePlayers.Patches;
 using MelonLoader;
@@ -30,7 +32,7 @@ namespace FakePlayers.Managers
 
 			try
 			{
-				MelonLogger.Msg($"Creating {fakePlayerCount} fake players...");
+				MelonLogger.Msg($"Creating {fakePlayerCount} fake players simultaneously...");
 
 				var serverDispatchersField = typeof(VWorld).GetField("_serverDispatchers", 
 					System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -69,6 +71,9 @@ namespace FakePlayers.Managers
 					return;
 				}
 
+				// Create all sessions and initiate logins in parallel
+				var playerData = new List<(SessionContext sessionContext, ulong steamID, long playerUID, string name)>();
+
 				for (int i = 0; i < fakePlayerCount; i++)
 				{
 					try
@@ -97,6 +102,7 @@ namespace FakePlayers.Managers
 							continue;
 						}
 						
+						// Start login for all players (they will proceed in parallel)
 						loginMethod.Invoke(sessionContext, new object[] 
 						{ 
 							fakePlayerUID, 
@@ -119,43 +125,7 @@ namespace FakePlayers.Managers
 							}
 						}
 						
-						System.Threading.Thread.Sleep(50);
-						
-						bool loginSuccessful = false;
-						try
-						{
-							var totalPlayerSteamIDsProperty = typeof(GameSessionInfo).GetProperty("TotalPlayerSteamIDs", 
-								System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-							if (totalPlayerSteamIDsProperty != null)
-							{
-								var totalPlayerSteamIDs = totalPlayerSteamIDsProperty.GetValue(gameSessionInfo);
-								if (totalPlayerSteamIDs != null)
-								{
-									var containsKeyMethod = totalPlayerSteamIDs.GetType().GetMethod("ContainsKey");
-									if (containsKeyMethod != null)
-									{
-										loginSuccessful = (bool)containsKeyMethod.Invoke(totalPlayerSteamIDs, new object[] { fakeSteamID });
-									}
-								}
-							}
-						}
-						catch (Exception ex)
-						{
-							MelonLogger.Error($"[FakePlayerManager] Exception checking if player was added after login: {ex.Message}");
-						}
-						
-						if (loginSuccessful)
-						{
-							var addMethod = sessionManager.GetType().GetMethod("Add");
-							addMethod?.Invoke(sessionManager, new object[] { sessionContext });
-							
-							_fakeSessions.Add((SessionContext)sessionContext);
-							MelonLogger.Msg($"Created fake player: {fakeName} (SteamID: {fakeSteamID}, UID: {fakePlayerUID})");
-						}
-						else
-						{
-							MelonLogger.Warning($"Failed to login fake player {fakeName} - player was not added to session");
-						}
+						playerData.Add(((SessionContext)sessionContext, fakeSteamID, fakePlayerUID, fakeName));
 					}
 					catch (Exception ex)
 					{
@@ -163,12 +133,85 @@ namespace FakePlayers.Managers
 					}
 				}
 
+				// Wait for all logins to complete in parallel
+				var loginTasks = playerData.Select(data =>
+				{
+					return Task.Run(() =>
+					{
+						bool loginSuccessful = WaitForLoginCompletion(gameSessionInfo, data.steamID, data.name, maxWaitMs: 500);
+						
+						if (loginSuccessful)
+						{
+							var addMethod = sessionManager.GetType().GetMethod("Add");
+							addMethod?.Invoke(sessionManager, new object[] { data.sessionContext });
+							
+							lock (_fakeSessions)
+							{
+								_fakeSessions.Add(data.sessionContext);
+							}
+							
+							MelonLogger.Msg($"Created fake player: {data.name} (SteamID: {data.steamID}, UID: {data.playerUID})");
+							return true;
+						}
+						else
+						{
+							MelonLogger.Warning($"Failed to login fake player {data.name} - player was not added to session within timeout");
+							return false;
+						}
+					});
+				}).ToArray();
+
+				// Wait for all login completions
+				Task.WaitAll(loginTasks);
+
 				MelonLogger.Msg($"Successfully created {_fakeSessions.Count} fake players.");
 			}
 			catch (Exception ex)
 			{
 				MelonLogger.Error($"Error in CreateFakePlayers: {ex.Message}\n{ex.StackTrace}");
 			}
+		}
+
+		private static bool WaitForLoginCompletion(GameSessionInfo gameSessionInfo, ulong steamID, string playerName, int maxWaitMs = 500)
+		{
+			const int pollIntervalMs = 10;
+			int maxAttempts = maxWaitMs / pollIntervalMs;
+			
+			for (int attempt = 0; attempt < maxAttempts; attempt++)
+			{
+				try
+				{
+					var totalPlayerSteamIDsProperty = typeof(GameSessionInfo).GetProperty("TotalPlayerSteamIDs", 
+						System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+					if (totalPlayerSteamIDsProperty != null)
+					{
+						var totalPlayerSteamIDs = totalPlayerSteamIDsProperty.GetValue(gameSessionInfo);
+						if (totalPlayerSteamIDs != null)
+						{
+							var containsKeyMethod = totalPlayerSteamIDs.GetType().GetMethod("ContainsKey");
+							if (containsKeyMethod != null)
+							{
+								bool isLoggedIn = (bool)containsKeyMethod.Invoke(totalPlayerSteamIDs, new object[] { steamID });
+								if (isLoggedIn)
+								{
+									return true;
+								}
+							}
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					MelonLogger.Error($"[FakePlayerManager] Exception checking if player {playerName} was added after login: {ex.Message}");
+				}
+				
+				if (attempt < maxAttempts - 1)
+				{
+					System.Threading.Thread.Sleep(pollIntervalMs);
+				}
+			}
+			
+			return false;
 		}
 
 		internal static void RemoveFakePlayers(GameSessionInfo gameSessionInfo)
