@@ -45,6 +45,7 @@
 		<Compile Include="Config\FakePlayersPreferences.cs" />
 		<Compile Include="Patches\VWorldPatches.cs" />
 		<Compile Include="Patches\IVroomPatches.cs" />
+		<Compile Include="Patches\VirtualAcceptSessionPatches.cs" />
 		<Compile Include="Managers\FakePlayerManager.cs" />
 	</ItemGroup>
 	

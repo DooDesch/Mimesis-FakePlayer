@@ -1,25 +1,20 @@
 using System;
 using System.Collections.Generic;
 using FakePlayers.Config;
+using FakePlayers.Patches;
 using MelonLoader;
+using ReluNetwork.ConstEnum;
 using ReluProtocol;
 using ReluProtocol.Enum;
 
 namespace FakePlayers.Managers
 {
-	/// <summary>
-	/// Manages fake players for testing purposes.
-	/// Creates virtual sessions and adds them to the game session.
-	/// </summary>
 	internal static class FakePlayerManager
 	{
 		private static readonly List<SessionContext> _fakeSessions = new List<SessionContext>();
-		private static long _fakePlayerUIDCounter = 1000000; // Start from a high number to avoid conflicts
-		private static ulong _fakeSteamIDCounter = 76561198000000000UL; // Start from a fake Steam ID range
+		private static long _fakePlayerUIDCounter = 1000000;
+		private static ulong _fakeSteamIDCounter = 76561198000000000UL;
 
-		/// <summary>
-		/// Creates fake players and adds them to the game session.
-		/// </summary>
 		internal static void CreateFakePlayers(VWorld vworld, GameSessionInfo gameSessionInfo)
 		{
 			if (!FakePlayersPreferences.Enabled)
@@ -37,7 +32,6 @@ namespace FakePlayers.Managers
 			{
 				MelonLogger.Msg($"Creating {fakePlayerCount} fake players...");
 
-				// Get the server dispatchers from VWorld using reflection
 				var serverDispatchersField = typeof(VWorld).GetField("_serverDispatchers", 
 					System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 				if (serverDispatchersField == null)
@@ -53,36 +47,49 @@ namespace FakePlayers.Managers
 					return;
 				}
 
-				// Create fake players
+				var sessionManagerField = typeof(VWorld).GetField("_sessionManager", 
+					System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+				if (sessionManagerField == null)
+				{
+					MelonLogger.Error("Could not find _sessionManager field in VWorld");
+					return;
+				}
+
+				var sessionManager = sessionManagerField.GetValue(vworld);
+				if (sessionManager == null)
+				{
+					MelonLogger.Error("_sessionManager is null in VWorld");
+					return;
+				}
+
+				var getNewSessionIDMethod = sessionManager.GetType().GetMethod("GetNewSessionID");
+				if (getNewSessionIDMethod == null)
+				{
+					MelonLogger.Error("Could not find GetNewSessionID method in SessionManager");
+					return;
+				}
+
 				for (int i = 0; i < fakePlayerCount; i++)
 				{
 					try
 					{
-						// Generate fake Steam ID
 						ulong fakeSteamID = _fakeSteamIDCounter + (ulong)i;
-						
-						// Generate fake player UID
 						long fakePlayerUID = _fakePlayerUIDCounter + i;
-						
-						// Generate fake name
 						string fakeName = $"FakePlayer{i + 1}";
-						
-						// Generate fake GUID
 						string fakeGUID = System.Guid.NewGuid().ToString();
 						
-						// Create VirtualAcceptSession
 						var virtualSessionType = typeof(VirtualAcceptSession);
 						var virtualSession = Activator.CreateInstance(virtualSessionType, serverDispatchers);
 						
-						// Create SessionContext
+						int newSessionId = (int)getNewSessionIDMethod.Invoke(sessionManager, null);
+						VirtualAcceptSessionPatches.SetSessionIdMapping(virtualSession, newSessionId);
+						
 						var sessionContextType = typeof(SessionContext);
 						var sessionContext = Activator.CreateInstance(sessionContextType, virtualSession);
 						
-						// Set context on virtual session
 						var setContextMethod = virtualSessionType.GetMethod("SetContext");
 						setContextMethod?.Invoke(virtualSession, new object[] { sessionContext });
 						
-						// Login the fake player (this will call RegistPlayer internally, which adds to game session)
 						var loginMethod = sessionContextType.GetMethod("Login");
 						if (loginMethod == null)
 						{
@@ -96,12 +103,11 @@ namespace FakePlayers.Managers
 							fakeGUID, 
 							fakeSteamID, 
 							fakeName, 
-							string.Empty, // voiceUID
-							false, // isHost
-							0 // hashCode
+							string.Empty,
+							false,
+							0
 						});
 						
-						// Verify PlayerInfoSnapshot was created
 						var playerSnapshotProperty = sessionContextType.GetProperty("PlayerInfoSnapshot");
 						if (playerSnapshotProperty != null)
 						{
@@ -113,11 +119,8 @@ namespace FakePlayers.Managers
 							}
 						}
 						
-						// Wait a tiny bit to ensure async operations complete
 						System.Threading.Thread.Sleep(50);
 						
-						// Check if player was successfully added after login
-						// Login internally calls RegistPlayer, so we don't need to call it again
 						bool loginSuccessful = false;
 						try
 						{
@@ -143,15 +146,8 @@ namespace FakePlayers.Managers
 						
 						if (loginSuccessful)
 						{
-							// Add session to session manager
-							var sessionManagerField = typeof(VWorld).GetField("_sessionManager", 
-								System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-							if (sessionManagerField != null)
-							{
-								var sessionManager = sessionManagerField.GetValue(vworld);
-								var addMethod = sessionManager.GetType().GetMethod("Add");
-								addMethod?.Invoke(sessionManager, new object[] { sessionContext });
-							}
+							var addMethod = sessionManager.GetType().GetMethod("Add");
+							addMethod?.Invoke(sessionManager, new object[] { sessionContext });
 							
 							_fakeSessions.Add((SessionContext)sessionContext);
 							MelonLogger.Msg($"Created fake player: {fakeName} (SteamID: {fakeSteamID}, UID: {fakePlayerUID})");
@@ -175,9 +171,6 @@ namespace FakePlayers.Managers
 			}
 		}
 
-		/// <summary>
-		/// Removes all fake players from the game session.
-		/// </summary>
 		internal static void RemoveFakePlayers(GameSessionInfo gameSessionInfo)
 		{
 			try
@@ -186,7 +179,6 @@ namespace FakePlayers.Managers
 				{
 					try
 					{
-						// Get SteamID from session
 						var steamIDProperty = typeof(SessionContext).GetProperty("SteamID");
 						if (steamIDProperty != null)
 						{
@@ -194,7 +186,16 @@ namespace FakePlayers.Managers
 							gameSessionInfo.RemoveSteamID(steamID);
 						}
 						
-						// Dispose session
+						var sessionProperty = typeof(SessionContext).GetProperty("Session");
+						if (sessionProperty != null)
+						{
+							var virtualSession = sessionProperty.GetValue(session);
+							if (virtualSession != null)
+							{
+								VirtualAcceptSessionPatches.RemoveSessionIdMapping(virtualSession);
+							}
+						}
+						
 						session?.Dispose();
 					}
 					catch (Exception ex)
@@ -204,6 +205,7 @@ namespace FakePlayers.Managers
 				}
 				
 				_fakeSessions.Clear();
+				VirtualAcceptSessionPatches.ClearSessionIdMappings();
 				MelonLogger.Msg("Removed all fake players.");
 			}
 			catch (Exception ex)
