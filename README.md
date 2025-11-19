@@ -1,6 +1,11 @@
-# Mimesis FakePlayers
+# MIMESIS - FakePlayers
 
 A MelonLoader mod for Mimesis that emulates additional players for testing purposes. This is especially useful for testing multiplayer mods like TooManyPlayers when you don't have friends available to join your game.
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Game](https://img.shields.io/badge/game-MIMESIS-purple)
+![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.1+-green)
+![Status](https://img.shields.io/badge/status-working-brightgreen)
 
 ---
 
