@@ -109,10 +109,10 @@ namespace FakePlayers.Patches
 								{
 									foreach (var player in enumerable)
 									{
-										var uidProperty = player.GetType().GetProperty("UID");
-										if (uidProperty != null)
+										var uidField = player.GetType().GetField("UID"); // VActor.UID is a public field, not a property
+										if (uidField != null)
 										{
-											long existingUID = (long)uidProperty.GetValue(player);
+											long existingUID = (long)uidField.GetValue(player);
 											if (existingUID == playerUID)
 											{
 												MelonLogger.Error($"[IVroomPatches] CanEnterChannel: Player already exists. playerUID: {playerUID}");
@@ -272,32 +272,31 @@ namespace FakePlayers.Patches
 										
 										try
 										{
-											// Create a default PosWithRot at origin
-											var posWithRotType = System.Type.GetType("PosWithRot");
-											if (posWithRotType != null)
+											// Create a default PosWithRot at origin.
+											// Use strongly-typed references (typeof) instead of Type.GetType
+											// with bare names, which never resolve from the mod assembly.
+											var posWithRotType = typeof(ReluProtocol.PosWithRot);
+											var posWithRotConstructor = posWithRotType.GetConstructor(new System.Type[] { });
+											if (posWithRotConstructor != null)
 											{
-												var posWithRotConstructor = posWithRotType.GetConstructor(new System.Type[] { });
-												if (posWithRotConstructor != null)
+												var defaultPos = posWithRotConstructor.Invoke(null);
+												
+												// Create a default SpawnPointData.
+												// Ctor (game 0.3.0): SpawnPointData(int index, PosWithRot pos,
+												// bool isInDoor, int masterID = 0, bool firstSpawnPoint = false)
+												var spawnPointDataType = typeof(SpawnPointData);
+												var spawnPointConstructor = spawnPointDataType.GetConstructor(new System.Type[]
 												{
-													var defaultPos = posWithRotConstructor.Invoke(null);
-													
-													// Create a default SpawnPointData
-													var spawnPointDataType = System.Type.GetType("SpawnPointData");
-													if (spawnPointDataType != null)
-													{
-														var spawnPointConstructor = spawnPointDataType.GetConstructor(new System.Type[] 
-														{ 
-															typeof(int), 
-															posWithRotType, 
-															typeof(bool), 
-															typeof(int) 
-														});
-														if (spawnPointConstructor != null)
-														{
-															var defaultSpawnPoint = spawnPointConstructor.Invoke(new object[] { 0, defaultPos, false, 0 });
-															__result = defaultSpawnPoint;
-														}
-													}
+													typeof(int),
+													posWithRotType,
+													typeof(bool),
+													typeof(int),
+													typeof(bool)
+												});
+												if (spawnPointConstructor != null)
+												{
+													var defaultSpawnPoint = spawnPointConstructor.Invoke(new object[] { 0, defaultPos, false, 0, false });
+													__result = defaultSpawnPoint;
 												}
 											}
 										}

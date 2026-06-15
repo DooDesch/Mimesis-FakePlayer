@@ -103,15 +103,18 @@ namespace FakePlayers.Managers
 						}
 						
 						// Start login for all players (they will proceed in parallel)
-						loginMethod.Invoke(sessionContext, new object[] 
-						{ 
-							fakePlayerUID, 
-							fakeGUID, 
-							fakeSteamID, 
-							fakeName, 
-							string.Empty,
-							false,
-							0
+						// Signature (game 0.3.0): Login(long playerUID, string guid, ulong steamID,
+						// string nickName, string voiceUID, bool isHost, string roomPassword, int hashCode)
+						loginMethod.Invoke(sessionContext, new object[]
+						{
+							fakePlayerUID,
+							fakeGUID,
+							fakeSteamID,
+							fakeName,
+							string.Empty, // voiceUID
+							false,        // isHost
+							string.Empty, // roomPassword (added in 0.3.0)
+							0             // hashCode
 						});
 						
 						var playerSnapshotProperty = sessionContextType.GetProperty("PlayerInfoSnapshot");

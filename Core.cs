@@ -1,7 +1,7 @@
 using FakePlayers.Config;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(FakePlayers.Core), "FakePlayers", "1.0.0", "DooDesch", null)]
+[assembly: MelonInfo(typeof(FakePlayers.Core), "FakePlayers", "1.1.0", "DooDesch", null)]
 [assembly: MelonGame("ReLUGames", "MIMESIS")]
 
 namespace FakePlayers
