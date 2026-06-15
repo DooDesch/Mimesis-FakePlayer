@@ -109,10 +109,10 @@ namespace FakePlayers.Patches
 								{
 									foreach (var player in enumerable)
 									{
-										var uidProperty = player.GetType().GetProperty("UID");
-										if (uidProperty != null)
+										var uidField = player.GetType().GetField("UID"); // VActor.UID is a public field, not a property
+										if (uidField != null)
 										{
-											long existingUID = (long)uidProperty.GetValue(player);
+											long existingUID = (long)uidField.GetValue(player);
 											if (existingUID == playerUID)
 											{
 												MelonLogger.Error($"[IVroomPatches] CanEnterChannel: Player already exists. playerUID: {playerUID}");
